@@ -18,8 +18,8 @@ omega     = rpm * 2 * pi / 60; % Angular velocity [rad/s]
 TSR       = omega * R / U_inf; % Tip-speed ratio [-]
 
 % BEM & Airfoil CSV options
-use_prandtl_tip  = true;            % Prandtl tip-loss factor
-use_prandtl_hub  = true;            % Prandtl hub-loss factor
+use_prandtl_tip  = false;            % Prandtl tip-loss factor
+use_prandtl_hub  = false;            % Prandtl hub-loss factor
 use_glauert      = true;            % Glauert high-induction correction (a > 0.2)
 circle_Cd        = 0.50;            % Drag coefficient for cylindrical root stations
 default_csv      = 'DU96-W-180.csv';% Fallback / single-airfoil CSV file
@@ -167,6 +167,7 @@ fprintf('  Rotor Power (P)       : %.3f MW\n', P_total / 1e6);
 fprintf('  Rotor Thrust (T)      : %.2f kN\n', T_total / 1e3);
 fprintf('  1a. Power Coeff (Cp)  : %.4f\n', Cp);
 fprintf('  1b. Thrust Coeff (Ct) : %.4f\n', Ct);
+fprintf('  Axial induct fact (a) : %.4f\n', mean(a));
 fprintf('======================================================\n');
 
 %% 6. Diagnostic Spanwise Plots
