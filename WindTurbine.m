@@ -162,7 +162,7 @@ Ct      = T_total / (0.5 * rho * A_swept * U_inf^2);
 fprintf('======================================================\n');
 fprintf('  Clipper Liberty C96 BEM Results (U = %.1f m/s, %.1f RPM)\n', U_inf, rpm);
 fprintf('======================================================\n');
-fprintf('  Tip-Speed Ratio (TSR) : %.4f\n', TSR);
+fprintf('  Tip-Speed Ratio (λ) : %.4f\n', TSR);
 fprintf('  Rotor Power (P)       : %.3f MW\n', P_total / 1e6);
 fprintf('  Rotor Thrust (T)      : %.2f kN\n', T_total / 1e3);
 fprintf('  1a. Power Coeff (Cp)  : %.4f\n', Cp);
