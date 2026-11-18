@@ -1,216 +1,159 @@
-%ME4053 Wind Turbine Project
-
-%% Clipper Liberty C96 Wind Turbine - BEM Aerodynamic Analysis
-% Solves Deliverable 1a (Cp) and 1b (Ct) at U_inf = 10 m/s, 14 RPM, 0 deg pitch.
-% Reads blade geometry from 'BladeProfile.csv' and airfoil polars from CSV file(s).
-
+%% Wind Turbine BEM Analysis (Deliverable 1 & 4)
 clear; clc; close all;
 
-%% 1. Operating Conditions & Turbine Specifications
-U_inf     = 10.0;              % Freestream wind speed [m/s]
-rpm       = 14.0;              % Rotor speed [RPM]
-pitch_deg = 0.0;               % Blade pitch angle [deg]
-B         = 3;                 % Number of blades [-]
-R         = 48.0;              % Rotor radius [m]
-rho       = 1.225;             % Air density [kg/m^3]
+% Load blade geometry and airfoil lookup tables
+bladeData     = readtable('BladeProfile.csv');
+airfoils.DU97 = readtable('DU97-W-300.csv');
+airfoils.DU91 = readtable('DU91-W2-250.csv');
+airfoils.DU93 = readtable('DU93-W-210.csv');
+airfoils.DU96 = readtable('DU96-W-180.csv');
 
-omega     = rpm * 2 * pi / 60; % Angular velocity [rad/s]
-TSR       = omega * R / U_inf; % Tip-speed ratio [-]
+%  DELIVERABLE 1: V = 10 m/s, Omega = 14 RPM, Pitch = 0 deg
+V_part1     = 10.0;                  % [m/s]
+omega_part1 = 14.0 * pi / 30;        % [rad/s]
+theta_part1 = 0.0;                   % [deg]
 
-% BEM & Airfoil CSV options
-use_prandtl_tip  = false;            % Prandtl tip-loss factor
-use_prandtl_hub  = false;            % Prandtl hub-loss factor
-use_glauert      = true;            % Glauert high-induction correction (a > 0.2)
-circle_Cd        = 0.50;            % Drag coefficient for cylindrical root stations
-default_csv      = 'DU96-W-180.csv';% Fallback / single-airfoil CSV file
-force_single_csv = false;           % Set true to force DU96-W-180.csv for all airfoil stations
+[P_part1, T_part1, Cp_part1, Ct_part1] = solveBEMs(theta_part1, V_part1, omega_part1, bladeData, airfoils);
 
-%% 2. Load Blade Geometry from BladeProfile.csv
-opts = detectImportOptions('BladeProfile.csv');
-opts = setvartype(opts, 'Airfoil', 'string');
-bladeTbl = readtable('BladeProfile.csv', opts);
+fprintf('=== Deliverable 1 Results (V = 10 m/s, RPM = 14, Pitch = 0 deg) ===\n');
+fprintf('Coefficient of Power (Cp):  %.4f\n', Cp_part1);
+fprintf('Coefficient of Thrust (Ct): %.4f\n\n', Ct_part1);
 
-r         = bladeTbl.DistanceFromCenterOfRotation / 1000.0; % Convert mm -> m
-c         = bladeTbl.ChordLength / 1000.0;                  % Convert mm -> m
-twist_deg = bladeTbl.BladeTwist;                            % Local twist [deg]
-airfoils  = erase(bladeTbl.Airfoil, " ");                   % Normalize names (e.g., "DU96-W-180")
+%  DELIVERABLE 4: Blade Pitch Control at V = 19 m/s, Omega = 15.5 RPM
+V_wind   = 19.0;               % [m/s] Assigned wind speed
+rpm      = 15.5;               % [RPM] Maximum rotational speed
+omega    = rpm * pi / 30;      % [rad/s]
+P_target = 2.5e6;              % [W] Rated power limit (2.5 MW)
 
-R_hub     = r(1);                                           % Hub radius = 1.3 m
-N         = numel(r);
+% Run the pitch sweep function (0 to 25 deg in 0.5 deg increments)
+theta_range = -7.5:0.5:25;
+[P_sweep, T_sweep, Cp_sweep, Ct_sweep] = sweepPitch(theta_range, V_wind, omega, bladeData, airfoils);
 
-%% 3. Load Airfoil Polar Data from CSV File(s)
-polars = load_airfoil_csvs(airfoils, default_csv, force_single_csv);
+% Pinpoint the exact pitch angle where Power = 2.5 MW using fzero
+objFun      = @(theta_p) solveBEMs(theta_p, V_wind, omega, bladeData, airfoils) - P_target;
+theta_exact = fzero(objFun, [0, 25]);
 
-%% 4. Station-by-Station BEM Solver
-a         = 0.25 * ones(N, 1);  % Axial induction factor [-]
-ap        = 0.01 * ones(N, 1);  % Tangential induction factor [-]
-phi_deg   = zeros(N, 1);        % Inflow angle [deg]
-alpha_deg = zeros(N, 1);        % Angle of attack [deg]
-Cl_arr    = zeros(N, 1);        % Lift coefficient [-]
-Cd_arr    = zeros(N, 1);        % Drag coefficient [-]
-F_arr     = ones(N, 1);         % Combined Prandtl loss factor [-]
-dT_dr     = zeros(N, 1);        % Thrust per unit span [N/m]
-dQ_dr     = zeros(N, 1);        % Torque per unit span [N*m/m]
+% Evaluate final operating state and span wise loads
+[P_final, T_final, Cp_final, Ct_final, radialLoads] = solveBEMs(theta_exact, V_wind, omega, bladeData, airfoils);
 
-max_iter  = 500;
-tol       = 1e-7;
-relax     = 0.5;                % Under-relaxation factor for numerical stability
+fprintf('=== Deliverable 4 Results (V = %.1f m/s, RPM = %.1f) ===\n', V_wind, rpm);
+fprintf('Exact Pitch Angle (theta_p): %.3f deg\n', theta_exact);
+fprintf('Aerodynamic Power:           %.4f MW\n', P_final / 1e6);
+fprintf('Rotor Thrust:                %.2f kN\n', T_final / 1e3);
+fprintf('Power Coefficient (Cp):      %.4f\n', Cp_final);
+fprintf('Thrust Coefficient (Ct):     %.4f\n', Ct_final);
 
-for i = 1:N
-    % Enforce zero aerodynamic load at exact hub and tip boundaries where F = 0
-    if (use_prandtl_hub && r(i) <= R_hub) || (use_prandtl_tip && r(i) >= R)
-        a(i)     = 1.0;
-        ap(i)    = 0.0;
-        F_arr(i) = 0.0;
-        dT_dr(i) = 0.0;
-        dQ_dr(i) = 0.0;
-        continue;
+
+%% ========================================================================
+%  LOCAL FUNCTIONS
+%  ========================================================================
+
+function [P_vec, T_vec, Cp_vec, Ct_vec] = sweepPitch(theta_vec, V_wind, omega, bladeData, airfoils)
+% SWEEPPITCH Sweeps across a vector of blade pitch angles and returns rotor performance
+    nSteps = length(theta_vec);
+    P_vec  = zeros(1, nSteps);
+    T_vec  = zeros(1, nSteps);
+    Cp_vec = zeros(1, nSteps);
+    Ct_vec = zeros(1, nSteps);
+
+    for k = 1:nSteps
+        [P_vec(k), T_vec(k), Cp_vec(k), Ct_vec(k)] = solveBEMs(theta_vec(k), V_wind, omega, bladeData, airfoils);
     end
-    
-    beta_deg = twist_deg(i) + pitch_deg;      % Local pitch + twist [deg]
-    sigma    = B * c(i) / (2 * pi * r(i));    % Local solidity [-]
-    af_name  = airfoils(i);
-    
-    for iter = 1:max_iter
-        % Inflow angle phi [rad]
-        phi = atan2(U_inf * (1 - a(i)), omega * r(i) * (1 + ap(i)));
-        phi = max(phi, 1e-6);
-        
-        alpha = rad2deg(phi) - beta_deg;
-        
-        % Interpolate Cl and Cd from loaded CSV polar table
-        if af_name == "circle"
-            Cl = 0.0;
-            Cd = circle_Cd;
-        else
-            tbl = polars.(matlab.lang.makeValidName(af_name));
-            Cl  = interp1(tbl.AoA, tbl.CL, alpha, 'linear', 'extrap');
-            Cd  = interp1(tbl.AoA, tbl.CD, alpha, 'linear', 'extrap');
-        end
-        
-        sin_p = sin(phi);
-        cos_p = cos(phi);
-        
-        % Normal and tangential force coefficients
-        Cn = Cl * cos_p + Cd * sin_p;
-        Ct = Cl * sin_p - Cd * cos_p;
-        
-        % Prandtl tip and hub loss factors
-        F_tip = 1.0;
-        if use_prandtl_tip
-            f_tip = (B / 2) * (R - r(i)) / (r(i) * sin_p);
-            F_tip = (2 / pi) * acos(min(1.0, exp(-min(50.0, f_tip))));
-        end
-        
-        F_hub = 1.0;
-        if use_prandtl_hub
-            f_hub = (B / 2) * (r(i) - R_hub) / (r(i) * sin_p);
-            F_hub = (2 / pi) * acos(min(1.0, exp(-min(50.0, f_hub))));
-        end
-        
-        F = max(1e-6, F_tip * F_hub);
-        
-        % Axial induction update (with Hansen/Glauert correction for a > 0.2)
-        K     = 4 * F * (sin_p^2) / (sigma * max(1e-6, Cn));
-        a_new = 1 / (K + 1);
-        
-        if use_glauert && a_new > 0.2
-            ac    = 0.2;
-            term  = (K * (1 - 2*ac) + 2)^2 + 4 * (K * (ac^2) - 1);
-            a_new = 0.5 * (2 + K * (1 - 2*ac) - sqrt(max(0.0, term)));
-        end
-        
-        % Tangential induction update
-        if abs(Ct) > 1e-8
-            Kp     = 4 * F * sin_p * cos_p / (sigma * Ct);
-            ap_new = 1 / (Kp - 1);
-        else
-            ap_new = 0.0;
-        end
-        
-        % Check convergence
-        if abs(a_new - a(i)) < tol && abs(ap_new - ap(i)) < tol
-            a(i)  = a_new;
-            ap(i) = ap_new;
-            break;
-        end
-        
-        a(i)  = (1 - relax) * a(i)  + relax * a_new;
-        ap(i) = (1 - relax) * ap(i) + relax * ap_new;
-    end
-    
-    % Store converged station parameters and elemental loads
-    V_rel_sq     = (U_inf * (1 - a(i)))^2 + (omega * r(i) * (1 + ap(i)))^2;
-    dT_dr(i)     = 0.5 * rho * B * c(i) * V_rel_sq * Cn;
-    dQ_dr(i)     = 0.5 * rho * B * c(i) * V_rel_sq * Ct * r(i);
-    phi_deg(i)   = rad2deg(phi);
-    alpha_deg(i) = alpha;
-    Cl_arr(i)    = Cl;
-    Cd_arr(i)    = Cd;
-    F_arr(i)     = F;
 end
 
-%% 5. Integrate Spanwise Loads & Compute Cp and Ct
-T_total = trapz(r, dT_dr);              % Total rotor thrust [N]
-Q_total = trapz(r, dQ_dr);              % Total rotor torque [N*m]
-P_total = Q_total * omega;              % Mechanical rotor power [W]
 
-A_swept = pi * R^2;                     % Swept rotor area [m^2]
-Cp      = P_total / (0.5 * rho * A_swept * U_inf^3);
-Ct      = T_total / (0.5 * rho * A_swept * U_inf^2);
+function [P_total, T_total, Cp, Ct, radialLoads] = solveBEMs(theta_p, V_wind, omega, bladeData, airfoils)
+% Computes rotor power, thrust, Cp, Ct, and span wise loads
+    % Geometry and fluid properties from reference script
+    r     = bladeData.DistanceFromCenterOfRotation / 1000;  % [m] (43x1)
+    c     = bladeData.ChordLength / 1000;                   % [m] (43x1)
+    beta  = bladeData.BladeTwist;                           % [deg] (43x1)
+    R     = max(r);                                         % [m] 48 m
+    B     = 3;                                              % Number of blades
+    A_rot = (R^2) * pi;                                     % Swept area [m^2]
+    rho   = 1.1;                                            % Air density [kg/m^3]
+    mu    = 1.8e-5;                                         % Dynamic viscosity [Pa*s]
+    a     = 1 / 3;                                          % Axial induction factor
 
-fprintf('======================================================\n');
-fprintf('  Clipper Liberty C96 BEM Results (U = %.1f m/s, %.1f RPM)\n', U_inf, rpm);
-fprintf('======================================================\n');
-fprintf('  Tip-Speed Ratio (λ) : %.4f\n', TSR);
-fprintf('  Rotor Power (P)       : %.3f MW\n', P_total / 1e6);
-fprintf('  Rotor Thrust (T)      : %.2f kN\n', T_total / 1e3);
-fprintf('  1a. Power Coeff (Cp)  : %.4f\n', Cp);
-fprintf('  1b. Thrust Coeff (Ct) : %.4f\n', Ct);
-fprintf('  Axial induct fact (a) : %.4f\n', mean(a));
-fprintf('======================================================\n');
+    % Local tip speed ratio and angular induction factor
+    TSR   = R * omega / V_wind;
+    TSR_r = TSR .* r / R;
+    ap    = -0.5 + 0.5 .* sqrt(1 + (4 ./ (TSR_r.^2)) .* a .* (1 - a));
 
-%% 6. Diagnostic Spanwise Plots
-figure('Name', 'C96 BEM Spanwise Distributions', 'Color', 'w');
+    % Relative velocity components and inflow angle
+    V_x   = V_wind .* (1 - a);
+    V_y   = r .* omega .* (1 + ap);
+    V_rel = sqrt(V_y.^2 + V_x.^2);
+    phi   = 90 - rad2deg(atan(V_y ./ V_x));                 % [deg]
 
-subplot(2, 2, 1);
-plot(r / R, a, 'b-o', 'LineWidth', 1.4, 'MarkerSize', 4); hold on;
-plot(r / R, ap, 'r-s', 'LineWidth', 1.4, 'MarkerSize', 4);
-grid on; xlabel('r / R [-]'); ylabel('Induction Factor [-]');
-legend('Axial (a)', 'Tangential (a'')', 'Location', 'best');
-title('Induction Factors');
+    % Angle of attack and local Reynolds number
+    alpha_deg = phi - (theta_p + beta);
+    Re        = rho .* V_wind .* r ./ mu;
 
-subplot(2, 2, 2);
-plot(r(7:end) / R, alpha_deg(7:end), 'k-o', 'LineWidth', 1.4, 'MarkerSize', 4);
-grid on; xlabel('r / R [-]'); ylabel('\alpha [deg]');
-title('Angle of Attack (Airfoil Stations)');
+    nStations = height(bladeData);
+    F_theta   = zeros(1, nStations);
+    F_z       = zeros(1, nStations);
+    CL_vec    = zeros(1, nStations);
+    CD_vec    = zeros(1, nStations);
+    FL_vec    = zeros(1, nStations);
+    FD_vec    = zeros(1, nStations);
 
-subplot(2, 2, 3);
-plot(r / R, dT_dr / 1e3, 'b-', 'LineWidth', 1.6);
-grid on; xlabel('r / R [-]'); ylabel('dT/dr [kN/m]');
-title('Spanwise Thrust Distribution');
+    for i = 1:nStations
+        afName = strtrim(string(bladeData{i, 5}));
 
-subplot(2, 2, 4);
-plot(r / R, dQ_dr / 1e3, 'r-', 'LineWidth', 1.6);
-grid on; xlabel('r / R [-]'); ylabel('dQ/dr [kN\cdotm/m]');
-title('Spanwise Torque Distribution');
-
-%% Helper Function: Load Airfoil Polar CSV Files
-function polars = load_airfoil_csvs(airfoils, default_csv, force_single_csv)
-    unique_afs = unique(airfoils(airfoils ~= "circle"));
-    default_tbl = readtable(default_csv);
-    
-    for k = 1:numel(unique_afs)
-        af = unique_afs(k);
-        field = matlab.lang.makeValidName(af);
-        csv_file = af + ".csv";
-        
-        if ~force_single_csv && isfile(csv_file)
-            polars.(field) = readtable(csv_file);
-            fprintf('Loaded airfoil polar from: %s\n', csv_file);
+        if afName == "circle"
+            % Uses provided cylinderCD.m function in project folder
+            CD_vec(i)  = cylinderCD(Re(i));
+            FD_vec(i)  = CD_vec(i) * 0.5 * rho * (V_rel(i)^2) * c(i);
+            angleFnet  = 90 - phi(i);
+            F_theta(i) = FD_vec(i) * sind(angleFnet);
+            F_z(i)     = FD_vec(i) * cosd(angleFnet);
         else
-            polars.(field) = default_tbl;
-            fprintf('Using %s for airfoil: %s\n', default_csv, af);
+            afTable = getAirfoilTable(afName, airfoils);
+            CL_val  = interp1(afTable.AoA, afTable.CL, alpha_deg(i), 'linear');
+            CD_val  = interp1(afTable.AoA, afTable.CD, alpha_deg(i), 'linear');
+            [F_theta(i), F_z(i), CL_vec(i), CD_vec(i), FL_vec(i), FD_vec(i)] = ...
+                calcElementForces(CL_val, CD_val, rho, V_rel(i), c(i), phi(i));
         end
+    end
+
+    % Integrate torque and thrust across span using trapz
+    Q_total = B * trapz(r, F_theta' .* r);
+    P_total = Q_total * omega;
+    T_total = B * trapz(r, F_z);
+
+    Ct = T_total / (0.5 * rho * (V_wind^2) * A_rot);
+    Cp = P_total / (0.5 * rho * (V_wind^3) * A_rot);
+
+    % Package radial loads for Deliverable 5
+    radialLoads.r       = r;
+    radialLoads.F_theta = F_theta';
+    radialLoads.F_z     = F_z';
+end
+
+
+function [F_theta, F_z, CL, CD, FL, FD] = calcElementForces(CL, CD, rho, V_rel, c, phi)
+% Computes normal (Fz) and tangential (Ftheta) forces per unit span
+    FL = CL * 0.5 * rho * (V_rel^2) * c;
+    FD = CD * 0.5 * rho * (V_rel^2) * c;
+
+    F_z     = (FL * cosd(phi)) + (FD * sind(phi));
+    F_theta = (FL * sind(phi)) - (FD * cosd(phi));
+end
+
+
+function afTable = getAirfoilTable(afName, airfoils)
+% Maps BladeProfile airfoil name to its corresponding table
+    switch afName
+        case "DU 97-W-300"
+            afTable = airfoils.DU97;
+        case "DU 91-W2-250"
+            afTable = airfoils.DU91;
+        case "DU 93-W-210"
+            afTable = airfoils.DU93;
+        case "DU 96-W-180"
+            afTable = airfoils.DU96;
+        otherwise
+            error('Unknown airfoil name: %s', afName);
     end
 end
