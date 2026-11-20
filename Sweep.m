@@ -1,9 +1,11 @@
 clear; clc; close all;
-%ME4053 Wind Turbine Project
-%Group 26
-%
-%Authors:
-%...
+% ME4053 Wind Turbine Project
+% Group 26
+% Authors:
+% Bergen Marquardt
+% Zichen Hu
+% Josh Watkins
+% Blake Elsinger
 %%
 %_____Table of Contents____
 % 1. Deliverables
@@ -38,7 +40,7 @@ airfoils  = LoadAirfoils();
 
 % DELIVERABLE 2: Blade Pitch Control at V = 8.5 m/s, TipSpeedRatio = 7.10
     U_wind2  = 8.5;                 % [m/s] Assigned wind speed
-    TSR      = 7.10;                % [] Tip Speed Ratio
+    TSR      = 7.10;                % Tip Speed Ratio
     omega2   = TSR * U_wind2 / 48;  % [rad/s] Rotational speed from TSR
 
     % Run the pitch sweep function (-10 to 20 deg in 0.05 deg increments)
@@ -64,7 +66,7 @@ airfoils  = LoadAirfoils();
 
 % DELIVERABLE 3: Blade Pitch Control at V = 8.3 m/s
     U_wind3  = 8.3;                  % [m/s] Assigned wind speed
-    TSR      = 5.85:0.05:9.35;       % [] Tip Speed Ratio 
+    TSR      = 5.85:0.05:9.35;       % Tip Speed Ratio 
     omega3   = TSR .* U_wind3 / 48;  % [rad/s] Rotational speed from TSR
 
     % Run the pitch sweep function (-10 to 20 deg in 0.1 deg increments)
@@ -77,7 +79,7 @@ airfoils  = LoadAirfoils();
     for i = 1:numel(omega3)
         [~, ~, Cp_sweep, ~] = sweepPitch(theta_range, ...
             U_wind3, omega3(i), bladeData, airfoils);
-        %Store data
+        % Store data
         Cp_data(i,:) = Cp_sweep;
     end
 
@@ -142,7 +144,7 @@ function airfoils = LoadAirfoils()
 % Function: LoadAirfoils
 % Input:    none
 % Output:   airfoils (struct containing airfoil tables)
-% Process:  For each unique airfoil, the corresponding csv is read in and
+% Process:  For each airfoil the corresponding csv is read in and
 %           stored in the data struct under its code.
     airfoils.DU97 = readtable('DU97-W-300.csv');
     airfoils.DU91 = readtable('DU91-W2-250.csv');
@@ -374,7 +376,7 @@ function results = analyzeTower(towerData, bladeData, V_wind, rpm, T_final, Q_fi
     k_eq       = 1.0 / defl_unit(end);
 
     m_tower_tot = trapz(z_tower, rho_steel .* A_sec);
-    m_eff       = m_top + 0.23 * m_tower_tot; % Effective modal mass
+    m_eff       = m_top + 0.23 * m_tower_tot; % Effective mass
     omega_1     = sqrt(k_eq / m_eff);
     f_1         = omega_1 / (2 * pi);         % 1st natural frequency [Hz]
     f_1P        = rpm / 60;
